@@ -1,0 +1,13 @@
+# Cargo.toml
+[package]
+name = "ExampleForRust"
+version = "0.1.0"
+authors = ["Markus Pfeiffer <markus.pfeiffer@morphism.de>"]
+
+[dependencies]
+libc = "*"
+
+[lib]
+name = "ExampleForRust"
+crate_type = ["cdylib"]
+
