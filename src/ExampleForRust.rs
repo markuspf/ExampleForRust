@@ -4,7 +4,10 @@ use std::ffi::{CString, CStr};
 use std::os::raw::c_uint;
 use std::io::Write;
 
-/* GAP integer types */
+// This really is infrastructure one could publish
+// in another way than an example package
+
+// GAP integer types 
 pub type Char = ::std::os::raw::c_char;
 pub type Int1 = i8;
 pub type Int2 = i16;
@@ -18,9 +21,10 @@ pub type UInt8 = u64;
 pub type Int = Int8;
 pub type UInt = UInt8;
 
-pub const MODULE_BUILTIN: UInt = 1;
-pub const MODULE_STATIC: UInt = 2;
-pub const MODULE_DYNAMIC: UInt = 3;
+// TODO: find way to import these from GAP
+pub const MODULE_BUILTIN: UInt = 10010;
+pub const MODULE_STATIC: UInt = 10011;
+pub const MODULE_DYNAMIC: UInt = 10012;
 
 
 /* Todo: This is a pointer to some raw memory */
@@ -36,12 +40,21 @@ extern "C" {
     pub fn NEW_PREC(size: UInt) -> Obj;
 
     pub fn InitHandlerFunc(hdlr: extern fn(x: Obj) -> Obj, cookie: *const Char);
+    pub fn InitGVarFuncsFromTable( tab: *mut StructGVarFunc );
 
     pub fn ArgStringToList(nams_c: *const Char) -> Obj;
     pub fn NewFunction(name: Obj, narg: Int, nams: Obj, hdlr: extern fn(x: Obj) -> Obj) -> Obj;
-    pub fn SetupFuncInfo(func: Obj, cookie: *const Char);
-    
     pub fn MakeReadOnlyGVar(gvar: UInt);
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct StructGVarFunc {
+    pub name: *const Char,
+    pub nargs: Int,
+    pub args: *const Char,
+    pub handler: ::std::option::Option<unsafe extern "C" fn(self_: Obj) -> Obj>,
+    pub cookie: *const Char
 }
 
 #[repr(C)]
@@ -83,67 +96,63 @@ pub extern fn TestCommandWithParams(self_: Obj, param: Obj, param2: Obj) -> Obj 
     return param;
 }
 
-/*
-typedef Obj (* GVarFunc)(/*arguments*/);
-
-#define GVAR_FUNC_TABLE_ENTRY(srcfile, name, nparam, params) \
-  {#name, nparam, \
-   params, \
-   (GVarFunc)name, \
-   srcfile ":Func" #name }
-
-// Table of functions to export
-static StructGVarFunc GVarFuncs [] = {
-    GVAR_FUNC_TABLE_ENTRY("rusting.c", TestCommand, 0, ""),
-    GVAR_FUNC_TABLE_ENTRY("rusting.c", TestCommandWithParams, 2, "param, param2"),
-
-	{ 0 } /* Finish with an empty entry */
-
-};
-*/
-
 pub fn mkstr(s: &str) -> *const Char {
     return CString::new("RUSTING").unwrap().as_ptr();
 }
 
 #[no_mangle]
 pub extern fn InitKernel( module_: *mut StructInitInfo ) -> Int {
-    /* init filters and functions                                          */
-    /*
-    InitHdlrFuncsFromTable( GVarFuncs );
-    */
-    /* return success                                                      */
-    writeln!(&mut std::io::stderr(), "Hello from initkernel");
-
     unsafe{
         InitHandlerFunc(TestCommand, CString::new("RUSTING").unwrap().as_ptr());
     }
-
-
     return 0;
 }
 
 #[no_mangle]
 pub extern fn InitLibrary( module_: *mut StructInitInfo ) -> Int {
-    /* init filters and functions */
-    /*
-    InitGVarFuncsFromTable( GVarFuncs );
-     */
-    /* return success                                                      */
-    writeln!(&mut std::io::stderr(), "Hello from initlibrary");
-
-    unsafe{ 
+    unsafe{
         let tmp = NEW_PREC(0);
         let gvar = GVarName(CString::new("RUSTING").unwrap().as_ptr());
         AssGVar(gvar, tmp);
 
         let gvar2 = GVarName(CString::new("RUSTING_testfunc").unwrap().as_ptr());
         let func = NewFunction( NameGVarObj(gvar2), 0, ArgStringToList(CString::new("").unwrap().as_ptr()), TestCommand);
-        SetupFuncInfo(func, CString::new("rustinginfo").unwrap().as_ptr());
         AssGVar(gvar2, func);
         MakeReadOnlyGVar(gvar2);
+
+        BlaBla();
     }
     return 0;
+}
+
+#[no_mangle]
+pub fn BlaBla() {
+    let mut funcs: Vec<StructGVarFunc> = vec![
+        StructGVarFunc {
+            name: CString::new("TestCommand").unwrap().into_raw(),
+            nargs: 0,
+            args: CString::new("").unwrap().into_raw(),
+            handler: Some(TestCommand),
+            cookie: CString::new("blurblurb").unwrap().into_raw()
+        },
+        StructGVarFunc {
+            name: CString::new("TestCommandPars").unwrap().into_raw(),
+            nargs: 1,
+            args: CString::new("bla").unwrap().into_raw(),
+            handler: Some(TestCommand),
+            cookie: CString::new("").unwrap().into_raw()
+        },
+        StructGVarFunc {
+            name: CString::new("").unwrap().into_raw(),
+            nargs: 0,
+            args: CString::new("bla").unwrap().into_raw(),
+            handler: Some(TestCommand),
+            cookie: CString::new("").unwrap().into_raw()
+        },
+    ];
+    unsafe{
+        InitGVarFuncsFromTable(funcs.as_mut_ptr());
+    };
 }
 
 #[no_mangle]
