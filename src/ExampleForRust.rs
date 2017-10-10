@@ -6,8 +6,10 @@ use std::io::Write;
 
 // This really is infrastructure one could publish
 // in another way than an example package
+// for example as a crate "use gap"?
+// Next up would of course to use GAP as library (yet again)
 
-// GAP integer types 
+// GAP integer types
 pub type Char = ::std::os::raw::c_char;
 pub type Int1 = i8;
 pub type Int2 = i16;
@@ -26,7 +28,6 @@ pub const MODULE_BUILTIN: UInt = 10010;
 pub const MODULE_STATIC: UInt = 10011;
 pub const MODULE_DYNAMIC: UInt = 10012;
 
-
 /* Todo: This is a pointer to some raw memory */
 pub type Bag = *mut *mut UInt;
 pub type Obj = *mut *mut UInt;
@@ -40,11 +41,20 @@ extern "C" {
     pub fn NEW_PREC(size: UInt) -> Obj;
 
     pub fn InitHandlerFunc(hdlr: extern fn(x: Obj) -> Obj, cookie: *const Char);
-    pub fn InitGVarFuncsFromTable( tab: *mut StructGVarFunc );
+    pub fn InitGVarFuncsFromTable( tab: *const StructGVarFunc );
 
     pub fn ArgStringToList(nams_c: *const Char) -> Obj;
     pub fn NewFunction(name: Obj, narg: Int, nams: Obj, hdlr: extern fn(x: Obj) -> Obj) -> Obj;
     pub fn MakeReadOnlyGVar(gvar: UInt);
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+enum Handler {
+    None,
+    NoArgs(::std::option::Option<unsafe extern "C" fn(self_: Obj) -> Obj>),
+    OneArg(::std::option::Option<unsafe extern "C" fn(self_: Obj, p1 : Obj) -> Obj>),
+    TwoArg(::std::option::Option<unsafe extern "C" fn(self_: Obj, p1 : Obj, p2 : Obj) -> Obj>),
 }
 
 #[repr(C)]
@@ -125,33 +135,32 @@ pub extern fn InitLibrary( module_: *mut StructInitInfo ) -> Int {
     return 0;
 }
 
+pub fn GVarFunc(name: &'static str, nargs: Int, argnam: &'static str, f: unsafe extern "C" fn(Obj) -> Obj) -> StructGVarFunc
+{
+    return StructGVarFunc {
+        name: CString::new(name).unwrap().into_raw(),
+        nargs: nargs,
+        args: CString::new(argnam).unwrap().into_raw(),
+        handler: Some(f),
+        cookie: CString::new(file!()).unwrap().into_raw()
+    }
+}
+
 #[no_mangle]
 pub fn BlaBla() {
-    let mut funcs: Vec<StructGVarFunc> = vec![
+    let funcs: Vec<StructGVarFunc> = vec![
+        GVarFunc("TestCommand", 0, "", TestCommand),
+        GVarFunc("TestCommandWithParams", 2, "p1, p2", TestCommand),
         StructGVarFunc {
-            name: CString::new("TestCommand").unwrap().into_raw(),
+            name: std::ptr::null(),
             nargs: 0,
-            args: CString::new("").unwrap().into_raw(),
-            handler: Some(TestCommand),
-            cookie: CString::new("blurblurb").unwrap().into_raw()
-        },
-        StructGVarFunc {
-            name: CString::new("TestCommandPars").unwrap().into_raw(),
-            nargs: 1,
-            args: CString::new("bla").unwrap().into_raw(),
-            handler: Some(TestCommand),
-            cookie: CString::new("").unwrap().into_raw()
-        },
-        StructGVarFunc {
-            name: CString::new("").unwrap().into_raw(),
-            nargs: 0,
-            args: CString::new("bla").unwrap().into_raw(),
-            handler: Some(TestCommand),
-            cookie: CString::new("").unwrap().into_raw()
+            args: std::ptr::null(),
+            handler: None,
+            cookie: std::ptr::null()
         },
     ];
     unsafe{
-        InitGVarFuncsFromTable(funcs.as_mut_ptr());
+        InitGVarFuncsFromTable(funcs.as_ptr());
     };
 }
 
@@ -160,7 +169,7 @@ pub extern fn Init__Dynamic() -> *mut StructInitInfo {
     return Box::into_raw(Box::new(
         StructInitInfo {
             type_: MODULE_DYNAMIC,
-            name: CString::new("rusting").unwrap().as_ptr(),
+            name: CString::new("rusting").unwrap().into_raw(),
             revision_c: CString::new("").unwrap().as_ptr(),
             revision_h: CString::new("").unwrap().as_ptr(),
             version: 0,
