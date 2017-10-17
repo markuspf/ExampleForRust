@@ -208,6 +208,12 @@ pub fn GVarFunc(name: &'static str, narg: usize, vararg: bool, argnam: &'static 
           the up to 6 parameters are passed as Obj pointers
 
        Hence we catch wrongly installed handlers here
+
+       possibly we should be parsing argnam, but really this should happen
+       statically (at compile time), because we know all properties of the
+       handler that we want to install.
+
+       Maybe writing an appropriate macro could work?
      */
     if ( (vararg == true && narg != 1) ||
           (vararg == false &&
