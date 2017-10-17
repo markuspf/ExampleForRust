@@ -165,16 +165,15 @@ pub extern fn SolveEquations(self_: Obj, list : Obj) -> Obj {
 #[no_mangle]
 pub extern fn InitKernel( module_: *mut StructInitInfo ) -> Int {
     unsafe{
-        InitHandlerFunc(TestCommand, CString::new("RUSTING").unwrap().as_ptr());
     }
     return 0;
 }
 
 pub fn GVarFuncs() -> Vec<StructGVarFunc> {
     return vec![
-        GVarFunc("TestCommand", "", HandlerE::NoArg(TestCommand)),
-        GVarFunc("TestCommandWithParams", "p1, p2", HandlerE::TwoArg(TestCommandWithParams)),
-        GVarFunc("SolveEquations", "p1...", HandlerE::ListArg(SolveEquations)),
+        GVarFunc("TestCommand", 0, false, "", HandlerE::NoArg(TestCommand)),
+        GVarFunc("TestCommandWithParams", 2, false, "p1, p2", HandlerE::TwoArg(TestCommandWithParams)),
+        GVarFunc("SolveEquations", 1, true, "p", HandlerE::ListArg(SolveEquations)),
         GVarGuard()];
 }
 
@@ -186,9 +185,9 @@ pub extern fn InitLibrary( module_: *mut StructInitInfo ) -> Int {
     return 0;
 }
 
-pub fn GVarFunc(name: &'static str, argnam: &'static str, f : HandlerE) -> StructGVarFunc
+pub fn GVarFunc(name: &'static str, narg: usize, vararg: bool, argnam: &'static str, f : HandlerE) -> StructGVarFunc
 {
-    let (narg, h) = match f {
+    let (harg, h) = match f {
         HandlerE::None => (0, HandlerT { none: 0 }),
         HandlerE::NoArg(f) => (0,HandlerT { a0 : f }),
         HandlerE::OneArg(f) => (1,HandlerT { a1 : f }),
@@ -199,10 +198,32 @@ pub fn GVarFunc(name: &'static str, argnam: &'static str, f : HandlerE) -> Struc
         HandlerE::SixArg(f) => (6,HandlerT { a6 : f }),
         HandlerE::ListArg(f) => (7,HandlerT { aX : f }),
     };
+    /* Currently GAP does the following
+       if vararg = true (so the last argument of the function is a vararg)
+          *or* vararg = false *and* narg > 6
+           then
+          all parameters are passed in a PLIST, which is passed as the first argument to
+          the handler
+       otherwise
+          the up to 6 parameters are passed as Obj pointers
+
+       Hence we catch wrongly installed handlers here
+     */
+    if ( (vararg == true && narg != 1) ||
+          (vararg == false &&
+           (narg <= 6 && harg != narg) ||
+           (narg > 6 && narg != 1))) {
+        // Error.
+    }
+
     return StructGVarFunc {
         name: CString::new(name).unwrap().into_raw(),
-        nargs: narg,
-        args: CString::new(argnam).unwrap().into_raw(),
+        nargs: if vararg {
+            -(narg as i64)
+        } else {
+            narg as i64
+        },
+        args : CString::new(argnam).unwrap().into_raw(),
         handler: h,
         cookie: CString::new(format!("{}:{}", file!(), name)).unwrap().into_raw()
     }
@@ -214,8 +235,8 @@ pub extern fn Init__Dynamic() -> *mut StructInitInfo {
         StructInitInfo {
             type_: MODULE_DYNAMIC,
             name: CString::new("ExampleForRust").unwrap().into_raw(),
-            revision_c: CString::new("").unwrap().as_ptr(),
-            revision_h: CString::new("").unwrap().as_ptr(),
+            revision_c: CString::new("").unwrap().into_raw(),
+            revision_h: CString::new("").unwrap().into_raw(),
             version: 0,
             crc: 0,
             initKernel: Some( InitKernel ),
@@ -224,7 +245,7 @@ pub extern fn Init__Dynamic() -> *mut StructInitInfo {
             preSave: None,
             postSave: None,
             postRestore: None,
-            filename: CString::new("").unwrap().as_ptr(),
+            filename: CString::new(file!()).unwrap().into_raw(),
             isGapRootRelative: 0
         }));
 }
