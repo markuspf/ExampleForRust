@@ -41,30 +41,81 @@ extern "C" {
     pub fn NEW_PREC(size: UInt) -> Obj;
 
     pub fn InitHandlerFunc(hdlr: extern fn(x: Obj) -> Obj, cookie: *const Char);
-    pub fn InitGVarFuncsFromTable( tab: *const StructGVarFunc );
+    pub fn InitGVarFuncsFromTable(tab: *const StructGVarFunc);
 
     pub fn ArgStringToList(nams_c: *const Char) -> Obj;
     pub fn NewFunction(name: Obj, narg: Int, nams: Obj, hdlr: extern fn(x: Obj) -> Obj) -> Obj;
     pub fn MakeReadOnlyGVar(gvar: UInt);
 }
 
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-enum Handler {
+pub enum HandlerE {
     None,
-    NoArgs(::std::option::Option<unsafe extern "C" fn(self_: Obj) -> Obj>),
-    OneArg(::std::option::Option<unsafe extern "C" fn(self_: Obj, p1 : Obj) -> Obj>),
-    TwoArg(::std::option::Option<unsafe extern "C" fn(self_: Obj, p1 : Obj, p2 : Obj) -> Obj>),
+    NoArg(unsafe extern "C" fn(self_: Obj) -> Obj),
+    OneArg(unsafe extern "C" fn(self_: Obj
+                                , p1 : Obj) -> Obj),
+    TwoArg(unsafe extern "C" fn(self_: Obj
+                                , p1 : Obj
+                                , p2 : Obj) -> Obj),
+    ThreeArg(unsafe extern "C" fn(self_: Obj
+                                  , p1 : Obj
+                                  , p2 : Obj
+                                  , p3 : Obj) -> Obj),
+    FourArg(unsafe extern "C" fn(self_: Obj
+                                 , p1 : Obj
+                                 , p2 : Obj
+                                 , p3 : Obj
+                                 , p4 : Obj) -> Obj),
+    FiveArg(unsafe extern "C" fn(self_: Obj
+                                 , p1 : Obj
+                                 , p2 : Obj
+                                 , p3 : Obj
+                                 , p4 : Obj
+                                 , p5 : Obj) -> Obj),
+    SixArg(unsafe extern "C" fn(self_: Obj
+                                , p1 : Obj
+                                , p2 : Obj
+                                , p3 : Obj
+                                , p4 : Obj
+                                , p5 : Obj
+                                , p6 : Obj) -> Obj),
+    ListArg(unsafe extern "C" fn(self_: Obj, list : Obj) -> Obj),
 }
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Copy, Clone)]
+pub union HandlerT {
+    none : i64,
+    a0 : unsafe extern "C" fn(self_: Obj) -> Obj,
+    a1 : unsafe extern "C" fn(self_: Obj, p1 : Obj) -> Obj,
+    a2 : unsafe extern "C" fn(self_: Obj, p1 : Obj, p2 : Obj) -> Obj,
+    a3 : unsafe extern "C" fn(self_: Obj, p1 : Obj, p2 : Obj, p3 : Obj) -> Obj,
+    a4 : unsafe extern "C" fn(self_: Obj, p1 : Obj, p2 : Obj, p3 : Obj, p4 : Obj) -> Obj,
+    a5 : unsafe extern "C" fn(self_: Obj, p1 : Obj, p2 : Obj, p3 : Obj, p4 : Obj, p5 : Obj) -> Obj,
+    a6 : unsafe extern "C" fn(self_: Obj, p1 : Obj, p2 : Obj, p3 : Obj, p4 : Obj, p5 : Obj, p6 : Obj) -> Obj,
+    aX : unsafe extern "C" fn(self_: Obj, list : Obj) -> Obj,
+}
+
+
+#[repr(C)]
+#[derive(Copy, Clone)]
 pub struct StructGVarFunc {
     pub name: *const Char,
     pub nargs: Int,
     pub args: *const Char,
-    pub handler: ::std::option::Option<unsafe extern "C" fn(self_: Obj) -> Obj>,
+    pub handler: HandlerT,
     pub cookie: *const Char
+}
+
+// This should really be a constant, but apparently
+// const null pointers are a very nightly feature.
+pub fn GVarGuard() -> StructGVarFunc {
+    return StructGVarFunc {
+        name: std::ptr::null(),
+        nargs: 0,
+        args: std::ptr::null(),
+        handler: HandlerT { none : 0 },
+        cookie: std::ptr::null()
+    };
 }
 
 #[repr(C)]
@@ -106,8 +157,9 @@ pub extern fn TestCommandWithParams(self_: Obj, param: Obj, param2: Obj) -> Obj 
     return param;
 }
 
-pub fn mkstr(s: &str) -> *const Char {
-    return CString::new("RUSTING").unwrap().as_ptr();
+#[no_mangle]
+pub extern fn SolveEquations(self_: Obj, list : Obj) -> Obj {
+    return list;
 }
 
 #[no_mangle]
@@ -118,50 +170,42 @@ pub extern fn InitKernel( module_: *mut StructInitInfo ) -> Int {
     return 0;
 }
 
+pub fn GVarFuncs() -> Vec<StructGVarFunc> {
+    return vec![
+        GVarFunc("TestCommand", "", HandlerE::NoArg(TestCommand)),
+        GVarFunc("TestCommandWithParams", "p1, p2", HandlerE::TwoArg(TestCommandWithParams)),
+        GVarFunc("SolveEquations", "p1...", HandlerE::ListArg(SolveEquations)),
+        GVarGuard()];
+}
+
 #[no_mangle]
 pub extern fn InitLibrary( module_: *mut StructInitInfo ) -> Int {
     unsafe{
-        let tmp = NEW_PREC(0);
-        let gvar = GVarName(CString::new("RUSTING").unwrap().as_ptr());
-        AssGVar(gvar, tmp);
-
-        let gvar2 = GVarName(CString::new("RUSTING_testfunc").unwrap().as_ptr());
-        let func = NewFunction( NameGVarObj(gvar2), 0, ArgStringToList(CString::new("").unwrap().as_ptr()), TestCommand);
-        AssGVar(gvar2, func);
-        MakeReadOnlyGVar(gvar2);
-
-        BlaBla();
+        InitGVarFuncsFromTable(GVarFuncs().as_ptr());
     }
     return 0;
 }
 
-pub fn GVarFunc(name: &'static str, nargs: Int, argnam: &'static str, f: unsafe extern "C" fn(Obj) -> Obj) -> StructGVarFunc
+pub fn GVarFunc(name: &'static str, argnam: &'static str, f : HandlerE) -> StructGVarFunc
 {
+    let (narg, h) = match f {
+        HandlerE::None => (0, HandlerT { none: 0 }),
+        HandlerE::NoArg(f) => (0,HandlerT { a0 : f }),
+        HandlerE::OneArg(f) => (1,HandlerT { a1 : f }),
+        HandlerE::TwoArg(f) => (2,HandlerT { a2 : f }),
+        HandlerE::ThreeArg(f) => (3,HandlerT { a3 : f }),
+        HandlerE::FourArg(f) => (4,HandlerT { a4 : f }),
+        HandlerE::FiveArg(f) => (5,HandlerT { a5 : f }),
+        HandlerE::SixArg(f) => (6,HandlerT { a6 : f }),
+        HandlerE::ListArg(f) => (7,HandlerT { aX : f }),
+    };
     return StructGVarFunc {
         name: CString::new(name).unwrap().into_raw(),
-        nargs: nargs,
+        nargs: narg,
         args: CString::new(argnam).unwrap().into_raw(),
-        handler: Some(f),
-        cookie: CString::new(file!()).unwrap().into_raw()
+        handler: h,
+        cookie: CString::new(format!("{}:{}", file!(), name)).unwrap().into_raw()
     }
-}
-
-#[no_mangle]
-pub fn BlaBla() {
-    let funcs: Vec<StructGVarFunc> = vec![
-        GVarFunc("TestCommand", 0, "", TestCommand),
-        GVarFunc("TestCommandWithParams", 2, "p1, p2", TestCommand),
-        StructGVarFunc {
-            name: std::ptr::null(),
-            nargs: 0,
-            args: std::ptr::null(),
-            handler: None,
-            cookie: std::ptr::null()
-        },
-    ];
-    unsafe{
-        InitGVarFuncsFromTable(funcs.as_ptr());
-    };
 }
 
 #[no_mangle]
@@ -169,7 +213,7 @@ pub extern fn Init__Dynamic() -> *mut StructInitInfo {
     return Box::into_raw(Box::new(
         StructInitInfo {
             type_: MODULE_DYNAMIC,
-            name: CString::new("rusting").unwrap().into_raw(),
+            name: CString::new("ExampleForRust").unwrap().into_raw(),
             revision_c: CString::new("").unwrap().as_ptr(),
             revision_h: CString::new("").unwrap().as_ptr(),
             version: 0,
